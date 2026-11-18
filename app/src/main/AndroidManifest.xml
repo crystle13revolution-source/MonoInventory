@@ -3,6 +3,8 @@
     <application
         android:allowBackup="false"
         android:label="物集"
+        android:icon="@drawable/logo_app"
+        android:roundIcon="@drawable/logo_app"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity android:name=".EditItemActivity" android:exported="false" />

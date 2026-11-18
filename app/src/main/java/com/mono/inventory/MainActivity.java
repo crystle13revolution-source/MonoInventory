@@ -26,6 +26,8 @@ public class MainActivity extends Activity {
         super.onCreate(state);db=new InventoryDb(this);
         LinearLayout root=Ui.vertical(this);root.setBackgroundColor(Ui.BG);Ui.pad(root,this,18,22,18,10);setContentView(root);
         LinearLayout heading=new LinearLayout(this);heading.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView brand=new ImageView(this);brand.setImageResource(R.drawable.logo_app);
+        heading.addView(brand,Ui.lp(this,42,42,10));
         TextView title=Ui.text(this,"物集",30,true);heading.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         Button add=new Button(this);add.setText("＋ 添加物品");add.setTextColor(Color.WHITE);add.setAllCaps(false);add.setBackground(Ui.shape(Ui.GREEN,12,this));Ui.pad(add,this,14,8,14,8);
         heading.addView(add);root.addView(heading,Ui.lp(this,-1,-2,18));
