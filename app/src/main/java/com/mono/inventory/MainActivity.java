@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
         heading.addView(add);root.addView(heading,Ui.lp(this,-1,-2,18));
         add.setOnClickListener(v->startActivity(new Intent(this,EditItemActivity.class)));
         TextView subtitle=Ui.text(this,"自己的东西，心中有数。",14,false);subtitle.setTextColor(Ui.MUTED);root.addView(subtitle,Ui.lp(this,-1,-2,18));
-        EditText search=new EditText(this);search.setSingleLine();search.setTextSize(15);search.setHint("搜索物品 / 分类 / 位置");
+        EditText search=new EditText(this);search.setSingleLine();search.setTextSize(15);search.setHint("搜索物品 / 分类 / 标签 / 位置");
         search.setBackground(Ui.shape(Color.WHITE,12,this));Ui.pad(search,this,16,11,16,11);
         root.addView(search,Ui.lp(this,-1,-2,16));
         search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int c,int after){}public void onTextChanged(CharSequence s,int st,int before,int count){keyword=s.toString();render();}public void afterTextChanged(Editable e){}});
@@ -58,6 +58,7 @@ public class MainActivity extends Activity {
             LinearLayout body=Ui.vertical(this);Ui.pad(body,this,12,0,2,0);card.addView(body,new LinearLayout.LayoutParams(0,-2,1));
             TextView name=Ui.text(this,i.name,17,true);body.addView(name);
             TextView meta=Ui.text(this,i.category+" · "+i.location,13,false);meta.setTextColor(Ui.MUTED);body.addView(meta);
+            try{org.json.JSONArray ts=new org.json.JSONArray(i.tags);java.util.ArrayList<String> labels=new java.util.ArrayList<>();for(int t=0;t<ts.length();t++)labels.add("#"+ts.getString(t));if(!labels.isEmpty()){TextView tagLine=Ui.text(this,String.join("  ",labels),12,false);tagLine.setTextColor(Ui.GREEN);body.addView(tagLine);}}catch(org.json.JSONException ignored){}
             String qty=(i.quantity==Math.rint(i.quantity))?String.valueOf((long)i.quantity):String.valueOf(i.quantity);
             String details=i.status+"  ·  "+qty+i.unit;
             if(!i.expiryDate.isEmpty())details+="  ·  到期 "+i.expiryDate;

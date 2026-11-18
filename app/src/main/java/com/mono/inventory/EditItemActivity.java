@@ -25,12 +25,13 @@ import java.time.LocalDate;
 
 public class EditItemActivity extends Activity {
     private static final int PICK_PHOTO=12, TAKE_PHOTO=13;
-    private static final String[] CATEGORIES={"日用品","衣服","家具","爱好","生产力装备","食品","数码设备","书籍","其他"};
     private static final String[] STATUS={"正常","使用中","闲置","借出","维修中","损坏","待处理","已耗尽"};
     private static final String[] MODES={"单件物品","可计数库存"};
     private InventoryDb db; private Item item;
-    private EditText name,location,quantity,unit,notes;
-    private AutoCompleteTextView category;
+    private EditText name,quantity,unit,notes;
+    private TextView category,location,tags;
+    private String selectedCategory="", selectedLocation="未设置";
+    private final java.util.LinkedHashSet<String> selectedTags=new java.util.LinkedHashSet<>();
     private Spinner status,mode;
     private TextView expiry;
     private ImageView photo;
@@ -56,9 +57,14 @@ public class EditItemActivity extends Activity {
         Button gallery=action("选择图片");LinearLayout.LayoutParams gal=new LinearLayout.LayoutParams(0,Ui.dp(this,48),1);gal.leftMargin=Ui.dp(this,10);photoActions.addView(gallery,gal);
         camera.setOnClickListener(v->takePhoto());gallery.setOnClickListener(v->pickPhoto());
         name=field(form,"物品名称 *",item.name,"例如：冬季外套");
-        label(form,"分类");category=new AutoCompleteTextView(this);category.setSingleLine();category.setThreshold(1);
-        category.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_dropdown_item_1line,CATEGORIES));category.setText(item.category);decorate(category);form.addView(category,Ui.lp(this,-1,52,14));
-        location=field(form,"存放地点",item.location,"例如：卧室 / 衣柜 A / 第二层");
+        selectedCategory=item.categoryId.isEmpty()?db.rootCategory(item.category):item.categoryId;
+        selectedLocation=item.location;
+        try{org.json.JSONArray aTags=new org.json.JSONArray(item.tags);for(int t=0;t<aTags.length();t++)selectedTags.add(aTags.getString(t));}catch(org.json.JSONException ignored){}
+        if(state!=null){selectedCategory=state.getString("category_id",selectedCategory);selectedLocation=state.getString("location_name",selectedLocation);java.util.ArrayList<String> saved=state.getStringArrayList("selected_tags");if(saved!=null){selectedTags.clear();selectedTags.addAll(saved);}}
+        category=optionField(form,"分类");category.setOnClickListener(v->chooseCategory(""));
+        tags=optionField(form,"标签（可多选）");tags.setOnClickListener(v->chooseTags());
+        location=optionField(form,"存放地点");location.setOnClickListener(v->chooseLocation());
+        refreshOptions();
         label(form,"当前状态");status=spinner(form,STATUS,index(STATUS,item.status));
         label(form,"数量管理方式");mode=spinner(form,MODES,"bulk".equals(item.quantityMode)?1:0);
         LinearLayout quantRow=new LinearLayout(this);form.addView(quantRow,Ui.lp(this,-1,-2,16));
@@ -73,6 +79,28 @@ public class EditItemActivity extends Activity {
         Button save=action("保存物品");save.setTextColor(Color.WHITE);save.setBackground(Ui.shape(Ui.GREEN,12,this));form.addView(save,Ui.lp(this,-1,54,12));save.setOnClickListener(v->save());
         if(item.id!=null){Button delete=action("删除此物品");delete.setTextColor(Color.rgb(157,49,49));form.addView(delete,Ui.lp(this,-1,46,0));delete.setOnClickListener(v->confirmDelete());}
     }
+    private TextView optionField(LinearLayout form,String title){label(form,title);TextView t=Ui.text(this,"",15,false);t.setGravity(Gravity.CENTER_VERTICAL);t.setMinHeight(Ui.dp(this,52));t.setBackground(Ui.shape(Color.WHITE,10,this));Ui.pad(t,this,12,10,12,10);form.addView(t,Ui.lp(this,-1,-2,14));return t;}
+    private void refreshOptions(){category.setText(db.categoryPath(selectedCategory)+"  ›");location.setText(selectedLocation+"  ›");tags.setText((selectedTags.isEmpty()?"选择标签":String.join("、",selectedTags))+"  ›");}
+    private interface NameAction {void run(String name);}
+    private void createName(String title,NameAction action){
+        EditText input=new EditText(this);input.setSingleLine(true);input.setHint("请输入名称");
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(input).setNegativeButton("取消",null).setPositiveButton("创建",null).create();
+        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w->{String n=input.getText().toString().trim();if(n.isEmpty()){input.setError("请输入名称");return;}try{action.run(n);dialog.dismiss();}catch(Exception e){input.setError(e.getMessage());}}));dialog.show();
+    }
+    private void chooseCategory(String parent){
+        java.util.List<InventoryDb.Category> children=db.children(parent);java.util.ArrayList<String> rows=new java.util.ArrayList<>();
+        rows.add(parent.isEmpty()?"＋ 新建一级分类":"＋ 新建子分类");
+        if(!parent.isEmpty()){rows.add("✓ 选择当前分类");rows.add("‹ 返回上一级");}
+        for(InventoryDb.Category child:children)rows.add(child.name+"  ›");
+        new AlertDialog.Builder(this).setTitle(parent.isEmpty()?"选择分类":db.categoryPath(parent)).setItems(rows.toArray(new String[0]),(d,pos)->{
+            if(pos==0){createName(parent.isEmpty()?"新建一级分类":"新建子分类",n->{String id=db.createCategory(parent,n);selectedCategory=id;refreshOptions();chooseCategory(id);});return;}
+            if(!parent.isEmpty()&&pos==1){selectedCategory=parent;refreshOptions();return;}
+            if(!parent.isEmpty()&&pos==2){chooseCategory(db.categoryParent(parent));return;}
+            chooseCategory(children.get(pos-(parent.isEmpty()?1:3)).id);
+        }).setNegativeButton("关闭",null).show();
+    }
+    private void chooseLocation(){java.util.List<String> values=db.locations();java.util.ArrayList<String> rows=new java.util.ArrayList<>();rows.add("＋ 新建存放地点");rows.addAll(values);new AlertDialog.Builder(this).setTitle("选择存放地点").setItems(rows.toArray(new String[0]),(d,pos)->{if(pos==0)createName("新建存放地点",n->{selectedLocation=db.addLocation(n);refreshOptions();});else{selectedLocation=values.get(pos-1);refreshOptions();}}).setNegativeButton("取消",null).show();}
+    private void chooseTags(){java.util.List<String> values=db.tags();java.util.ArrayList<String> rows=new java.util.ArrayList<>();rows.add("＋ 新建标签");for(String n:values)rows.add((selectedTags.contains(n)?"☑  ":"☐  ")+n);new AlertDialog.Builder(this).setTitle("选择标签 · 可多选").setItems(rows.toArray(new String[0]),(d,pos)->{if(pos==0)createName("新建标签",n->{selectedTags.add(db.addTag(n));refreshOptions();chooseTags();});else{String n=values.get(pos-1);if(!selectedTags.remove(n))selectedTags.add(n);refreshOptions();chooseTags();}}).setPositiveButton("完成",null).show();}
     private Button action(String title){Button b=new Button(this);b.setText(title);b.setAllCaps(false);return b;}
     private void label(LinearLayout p,String text){TextView t=Ui.text(this,text,14,true);p.addView(t,Ui.lp(this,-1,-2,6));}
     private void decorate(EditText e){e.setTextSize(15);e.setSingleLine(true);e.setBackground(Ui.shape(Color.WHITE,10,this));Ui.pad(e,this,12,8,12,8);}
@@ -87,7 +115,7 @@ public class EditItemActivity extends Activity {
         double q;try{q=Double.parseDouble(quantity.getText().toString().trim());}catch(Exception ex){quantity.setError("请输入有效数量");return;}
         if(!Double.isFinite(q)||q<=0){quantity.setError("数量必须大于 0");return;}
         String unitValue=unit.getText().toString().trim();if(unitValue.isEmpty()){unit.setError("请输入单位");return;}
-        item.name=n;item.category=nonempty(category.getText().toString(),"其他");item.location=nonempty(location.getText().toString(),"未设置");
+        item.name=n;item.categoryId=selectedCategory;item.category=db.categoryPath(selectedCategory);item.location=selectedLocation;item.tags=new org.json.JSONArray(selectedTags).toString();
         item.status=STATUS[status.getSelectedItemPosition()];item.quantityMode=mode.getSelectedItemPosition()==0?"single":"bulk";
         item.quantity=q;item.unit=unitValue;item.notes=notes.getText().toString().trim();
         String date=expiry.getText().toString();item.expiryDate=date.equals("选择到期日")?"":date;
@@ -117,5 +145,5 @@ public class EditItemActivity extends Activity {
         if(request==TAKE_PHOTO)cleanupPending();
     }
     private void cleanupPending(){if(pendingCameraUri!=null){try{getContentResolver().delete(pendingCameraUri,null,null);}catch(Exception ignored){}pendingCameraUri=null;}}
-    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);if(pendingCameraUri!=null)out.putString("camera_uri",pendingCameraUri.toString());out.putString("staged_photo",stagedPhotoPath);}
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);if(pendingCameraUri!=null)out.putString("camera_uri",pendingCameraUri.toString());out.putString("staged_photo",stagedPhotoPath);out.putString("category_id",selectedCategory);out.putString("location_name",selectedLocation);out.putStringArrayList("selected_tags",new java.util.ArrayList<>(selectedTags));}
 }
