@@ -30,7 +30,7 @@ public class EditItemActivity extends Activity {
     private InventoryDb db; private Item item;
     private EditText name,quantity,unit,notes;
     private TextView category,location,tags;
-    private String selectedCategory="", selectedLocation="未设置";
+    private String selectedCategory="", selectedLocation="未设置", selectedPlaceId="";
     private final java.util.LinkedHashSet<String> selectedTags=new java.util.LinkedHashSet<>();
     private Spinner status,mode;
     private TextView expiry;
@@ -58,9 +58,9 @@ public class EditItemActivity extends Activity {
         camera.setOnClickListener(v->takePhoto());gallery.setOnClickListener(v->pickPhoto());
         name=field(form,"物品名称 *",item.name,"例如：冬季外套");
         selectedCategory=item.categoryId.isEmpty()?db.rootCategory(item.category):item.categoryId;
-        selectedLocation=item.location;
+        selectedLocation=item.location;selectedPlaceId=item.placeId==null?"":item.placeId;
         try{org.json.JSONArray aTags=new org.json.JSONArray(item.tags);for(int t=0;t<aTags.length();t++)selectedTags.add(aTags.getString(t));}catch(org.json.JSONException ignored){}
-        if(state!=null){selectedCategory=state.getString("category_id",selectedCategory);selectedLocation=state.getString("location_name",selectedLocation);java.util.ArrayList<String> saved=state.getStringArrayList("selected_tags");if(saved!=null){selectedTags.clear();selectedTags.addAll(saved);}}
+        if(state!=null){selectedCategory=state.getString("category_id",selectedCategory);selectedLocation=state.getString("location_name",selectedLocation);selectedPlaceId=state.getString("place_id",selectedPlaceId);java.util.ArrayList<String> saved=state.getStringArrayList("selected_tags");if(saved!=null){selectedTags.clear();selectedTags.addAll(saved);}}
         category=optionField(form,"分类");category.setOnClickListener(v->chooseCategory(""));
         tags=optionField(form,"标签（可多选）");tags.setOnClickListener(v->chooseTags());
         location=optionField(form,"存放地点");location.setOnClickListener(v->chooseLocation());
@@ -80,7 +80,7 @@ public class EditItemActivity extends Activity {
         if(item.id!=null){Button delete=action("删除此物品");delete.setTextColor(Color.rgb(157,49,49));form.addView(delete,Ui.lp(this,-1,46,0));delete.setOnClickListener(v->confirmDelete());}
     }
     private TextView optionField(LinearLayout form,String title){label(form,title);TextView t=Ui.text(this,"",15,false);t.setGravity(Gravity.CENTER_VERTICAL);t.setMinHeight(Ui.dp(this,52));t.setBackground(Ui.shape(Color.WHITE,10,this));Ui.pad(t,this,12,10,12,10);form.addView(t,Ui.lp(this,-1,-2,14));return t;}
-    private void refreshOptions(){category.setText(db.categoryPath(selectedCategory)+"  ›");location.setText(selectedLocation+"  ›");tags.setText((selectedTags.isEmpty()?"选择标签":String.join("、",selectedTags))+"  ›");}
+    private void refreshOptions(){category.setText(db.categoryPath(selectedCategory)+"  ›");location.setText((selectedPlaceId.isEmpty()?selectedLocation:db.locationLabel(itemForPlace()))+"  ›");tags.setText((selectedTags.isEmpty()?"选择标签":String.join("、",selectedTags))+"  ›");}
     private interface NameAction {void run(String name);}
     private void createName(String title,NameAction action){
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("请输入名称");
@@ -99,7 +99,27 @@ public class EditItemActivity extends Activity {
             chooseCategory(children.get(pos-(parent.isEmpty()?1:3)).id);
         }).setNegativeButton("关闭",null).show();
     }
-    private void chooseLocation(){java.util.List<String> values=db.locations();java.util.ArrayList<String> rows=new java.util.ArrayList<>();rows.add("＋ 新建存放地点");rows.addAll(values);new AlertDialog.Builder(this).setTitle("选择存放地点").setItems(rows.toArray(new String[0]),(d,pos)->{if(pos==0)createName("新建存放地点",n->{selectedLocation=db.addLocation(n);refreshOptions();});else{selectedLocation=values.get(pos-1);refreshOptions();}}).setNegativeButton("取消",null).show();}
+    private Item itemForPlace(){Item i=new Item();i.placeId=selectedPlaceId;i.location=selectedLocation;return i;}
+    private void chooseLocation(){
+        java.util.List<InventoryDb.Room> rooms=db.rooms();java.util.ArrayList<String> labels=new java.util.ArrayList<>();
+        labels.add("✓ 不指定地点");labels.add("＋ 创建房间");for(InventoryDb.Room room:rooms)labels.add("⌂ "+room.name+" ›");
+        new AlertDialog.Builder(this).setTitle("选择房间").setItems(labels.toArray(new String[0]),(d,index)->{
+            if(index==0){selectedPlaceId="";selectedLocation="未设置";refreshOptions();return;}
+            if(index==1){createName("创建房间",n->{String id=db.addRoom(n);choosePlace(id,"");});return;}
+            choosePlace(rooms.get(index-2).id,"");
+        }).setNegativeButton("取消",null).show();
+    }
+    private void choosePlace(String roomId,String parentId){
+        java.util.List<InventoryDb.Place> children=db.places(roomId,parentId);java.util.ArrayList<String> options=new java.util.ArrayList<>();
+        options.add("＋ 在这里创建地点");if(!parentId.isEmpty())options.add("✓ 选择当前位置");
+        if(!parentId.isEmpty())options.add("‹ 上一级");for(InventoryDb.Place p:children)options.add("📁 "+p.name+" ›");
+        new AlertDialog.Builder(this).setTitle(parentId.isEmpty()?db.room(roomId).name:db.placePath(parentId)).setItems(options.toArray(new String[0]),(d,index)->{
+            if(index==0){createName("创建地点",n->{String id=db.addPlace(roomId,parentId,n);selectedPlaceId=id;selectedLocation=db.placePath(id);refreshOptions();choosePlace(roomId,id);});return;}
+            if(!parentId.isEmpty()&&index==1){selectedPlaceId=parentId;selectedLocation=db.placePath(parentId);refreshOptions();return;}
+            if(!parentId.isEmpty()&&index==2){InventoryDb.Place p=db.place(parentId);choosePlace(roomId,p==null?"":p.parentId);return;}
+            choosePlace(roomId,children.get(index-(parentId.isEmpty()?1:3)).id);
+        }).setNegativeButton("关闭",null).show();
+    }
     private void chooseTags(){java.util.List<String> values=db.tags();java.util.ArrayList<String> rows=new java.util.ArrayList<>();rows.add("＋ 新建标签");for(String n:values)rows.add((selectedTags.contains(n)?"☑  ":"☐  ")+n);new AlertDialog.Builder(this).setTitle("选择标签 · 可多选").setItems(rows.toArray(new String[0]),(d,pos)->{if(pos==0)createName("新建标签",n->{selectedTags.add(db.addTag(n));refreshOptions();chooseTags();});else{String n=values.get(pos-1);if(!selectedTags.remove(n))selectedTags.add(n);refreshOptions();chooseTags();}}).setPositiveButton("完成",null).show();}
     private Button action(String title){Button b=new Button(this);b.setText(title);b.setAllCaps(false);return b;}
     private void label(LinearLayout p,String text){TextView t=Ui.text(this,text,14,true);p.addView(t,Ui.lp(this,-1,-2,6));}
@@ -115,7 +135,7 @@ public class EditItemActivity extends Activity {
         double q;try{q=Double.parseDouble(quantity.getText().toString().trim());}catch(Exception ex){quantity.setError("请输入有效数量");return;}
         if(!Double.isFinite(q)||q<=0){quantity.setError("数量必须大于 0");return;}
         String unitValue=unit.getText().toString().trim();if(unitValue.isEmpty()){unit.setError("请输入单位");return;}
-        item.name=n;item.categoryId=selectedCategory;item.category=db.categoryPath(selectedCategory);item.location=selectedLocation;item.tags=new org.json.JSONArray(selectedTags).toString();
+        item.name=n;item.categoryId=selectedCategory;item.category=db.categoryPath(selectedCategory);item.location=selectedPlaceId.isEmpty()?selectedLocation:db.placePath(selectedPlaceId);item.placeId=selectedPlaceId;item.tags=new org.json.JSONArray(selectedTags).toString();
         item.status=STATUS[status.getSelectedItemPosition()];item.quantityMode=mode.getSelectedItemPosition()==0?"single":"bulk";
         item.quantity=q;item.unit=unitValue;item.notes=notes.getText().toString().trim();
         String date=expiry.getText().toString();item.expiryDate=date.equals("选择到期日")?"":date;
@@ -145,5 +165,5 @@ public class EditItemActivity extends Activity {
         if(request==TAKE_PHOTO)cleanupPending();
     }
     private void cleanupPending(){if(pendingCameraUri!=null){try{getContentResolver().delete(pendingCameraUri,null,null);}catch(Exception ignored){}pendingCameraUri=null;}}
-    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);if(pendingCameraUri!=null)out.putString("camera_uri",pendingCameraUri.toString());out.putString("staged_photo",stagedPhotoPath);out.putString("category_id",selectedCategory);out.putString("location_name",selectedLocation);out.putStringArrayList("selected_tags",new java.util.ArrayList<>(selectedTags));}
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);if(pendingCameraUri!=null)out.putString("camera_uri",pendingCameraUri.toString());out.putString("staged_photo",stagedPhotoPath);out.putString("category_id",selectedCategory);out.putString("location_name",selectedLocation);out.putString("place_id",selectedPlaceId);out.putStringArrayList("selected_tags",new java.util.ArrayList<>(selectedTags));}
 }
